@@ -1,5 +1,4 @@
-
-import std;
+#include <iostream>	
 #include <cstdlib> // For the system() function int main() { // Replace "path_to_exe" with the actual path to your .exe file 
 
 void SetCursorPosandClear() {
