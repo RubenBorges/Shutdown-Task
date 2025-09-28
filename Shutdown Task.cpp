@@ -1,6 +1,72 @@
 import std;
 #include <cstdlib> // For the system() function int main() { // Replace "path_to_exe" with the actual path to your .exe file 
+// ForcedShutdown.cpp : Forces Windows to shutdown/reboot/logoff.
+// Usage:
+//   ForcedShutdown.exe            -> Force shutdown (power off)
+//   ForcedShutdown.exe /reboot    -> Force reboot
+//   ForcedShutdown.exe /logoff    -> Force logoff
+//   ForcedShutdown.exe /hibernate -> Hibernate (not forced)
+// Requires: Administrator (SeShutdownPrivilege) for shutdown/reboot/logoff.
 
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0501
+#endif
+#include <windows.h>
+
+// Runtime-loaded hibernate function signature (avoid compile-time dependency on powrprof.h)
+typedef BOOLEAN(WINAPI* PSetSuspendState)(BOOLEAN, BOOLEAN, BOOLEAN);
+
+bool EnablePrivilege(LPCTSTR privName)
+{
+	HANDLE hToken = nullptr;
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+	{
+		std::cerr << "OpenProcessToken failed: " << GetLastError() << "\n";
+		return false;
+	}
+
+	TOKEN_PRIVILEGES tp{};
+	LUID luid;
+	if (!LookupPrivilegeValue(nullptr, privName, &luid))
+	{
+		std::cerr << "LookupPrivilegeValue failed: " << GetLastError() << "\n";
+		CloseHandle(hToken);
+		return false;
+	}
+
+	tp.PrivilegeCount = 1;
+	tp.Privileges[0].Luid = luid;
+	tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+	if (!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), nullptr, nullptr))
+	{
+		std::cerr << "AdjustTokenPrivileges failed: " << GetLastError() << "\n";
+		CloseHandle(hToken);
+		return false;
+	}
+	if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
+	{
+		std::cerr << "Privilege not assigned. Run as Administrator.\n";
+		CloseHandle(hToken);
+		return false;
+	}
+
+	CloseHandle(hToken);
+	return true;
+}
+
+int ForceAction(UINT flags, DWORD reason)
+{
+	if (!EnablePrivilege(SE_SHUTDOWN_NAME))
+		return 1;
+
+	if (!ExitWindowsEx(flags, reason))
+	{
+		std::cerr << "ExitWindowsEx failed: " << GetLastError() << "\n";
+		return 2;
+	}
+	return 0;
+}
 void SetCursorPosandClear() {
 	std::cout << "\033[7;1H";
 	std::cout << "\033[2K";
@@ -35,6 +101,7 @@ void drawMainContent() {
 
 }
 int ProgramLogic(std::string& userInput, std::string& selection) {
+	DWORD reason = SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED;
 	SetCursorPosandMark();
 	std::cin >> userInput; //MAKESHIFT Switch!
 	for (auto& c : userInput) selection += std::toupper(c);
@@ -55,7 +122,7 @@ int ProgramLogic(std::string& userInput, std::string& selection) {
 		ExitAnimation("Shutting down the computer... BuhBYEEEE BooBoo");
 		system(command.c_str());
 		system("cls"); // Windows-specific
-		return 0;
+		return ForceAction(EWX_POWEROFF | EWX_FORCEIFHUNG, reason);
 	}
 	else {
 		SetCursorPosandClear();
